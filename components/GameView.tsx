@@ -1,0 +1,733 @@
+"use client";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { chatCompletionStream } from "@/lib/ai";
+import {
+  narrativePrompt,
+  openingPrompt,
+  endingPrompt,
+  choiceGenPrompt,
+  dimensionJudgePrompt,
+} from "@/lib/prompts";
+import {
+  cleanNarrativeText,
+  parseChoiceResponse,
+} from "@/lib/markdown-parser";
+import { getWorld, getGame, saveGame, genId } from "@/lib/store";
+import {
+  WorldSetting,
+  GameState,
+  NarrativeMessage,
+  NarrativeOption,
+  ChoiceMade,
+  KeyNode,
+  Ending,
+} from "@/lib/types";
+
+interface Props {
+  gameId?: string;
+  worldId?: string;
+}
+
+type Phase = "loading" | "playing" | "node" | "ending" | "error";
+
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+function checkKeyNodeTrigger(
+  w: WorldSetting,
+  g: GameState
+): KeyNode | null {
+  const dims = g.dimensions || {};
+  const triggered = g.triggeredNodes || [];
+
+  for (const node of w.keyNodes) {
+    if (triggered.includes(node.id)) continue;
+    const conditions = node.triggerConditions;
+    if (!conditions || conditions.length === 0) continue;
+    const met = conditions.every(
+      (c) => (dims[c.dimensionId] || 0) >= c.threshold
+    );
+    if (met) return node;
+  }
+  return null;
+}
+
+function checkEnding(w: WorldSetting, g: GameState): Ending | null {
+  for (const ending of w.endings) {
+    if (ending.conditions.length === 0) continue;
+    const allMet = ending.conditions.every((cond) =>
+      g.choicesMade.some(
+        (c) => c.nodeId === cond.nodeId && c.choiceId === cond.choiceId
+      )
+    );
+    if (allMet) return ending;
+  }
+
+  const triggered = g.triggeredNodes || [];
+  if (triggered.length >= w.keyNodes.length && w.keyNodes.length > 0) {
+    let bestMatch: Ending | null = null;
+    let bestScore = -1;
+    for (const ending of w.endings) {
+      let score = 0;
+      for (const cond of ending.conditions) {
+        if (
+          g.choicesMade.some(
+            (c) =>
+              c.nodeId === cond.nodeId && c.choiceId === cond.choiceId
+          )
+        )
+          score++;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = ending;
+      }
+    }
+    return bestMatch || w.endings[0] || null;
+  }
+
+  return null;
+}
+
+export default function GameView({ gameId, worldId }: Props) {
+  const [world, setWorld] = useState<WorldSetting | null>(null);
+  const [game, setGame] = useState<GameState | null>(null);
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [streaming, setStreaming] = useState(false);
+  const [streamText, setStreamText] = useState("");
+  const [pendingChoices, setPendingChoices] = useState<
+    NarrativeOption[]
+  >([]);
+  const [loadingChoices, setLoadingChoices] = useState(false);
+  const [activeNode, setActiveNode] = useState<KeyNode | null>(null);
+  const [freeText, setFreeText] = useState("");
+  const [showFreeInput, setShowFreeInput] = useState(false);
+  const [error, setError] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const initRef = useRef(false);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+
+    if (gameId) {
+      const g = getGame(gameId);
+      if (g) {
+        const w = getWorld(g.worldId);
+        if (w) {
+          setWorld(w);
+          setGame(g);
+          if (g.endingReached) {
+            setPhase("ending");
+          } else {
+            setPhase("playing");
+            if (g.pendingChoices && g.pendingChoices.length > 0) {
+              setPendingChoices(g.pendingChoices);
+            }
+          }
+          return;
+        }
+      }
+      setError("找不到存档数据");
+      setPhase("error");
+      return;
+    }
+
+    if (worldId) {
+      const w = getWorld(worldId);
+      if (!w) {
+        setError("找不到世界数据");
+        setPhase("error");
+        return;
+      }
+      setWorld(w);
+      const dims: Record<string, number> = {};
+      if (w.dimensions) {
+        for (const d of w.dimensions) dims[d.id] = 0;
+      }
+      const newGame: GameState = {
+        id: genId(),
+        worldId: w.id,
+        currentNodeIndex: 0,
+        choicesMade: [],
+        narrative: [],
+        sideCharacters: [],
+        dimensions: dims,
+        pendingChoices: [],
+        triggeredNodes: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setGame(newGame);
+      saveGame(newGame);
+      generateOpening(w, newGame);
+      return;
+    }
+
+    setError("缺少游戏 ID 或世界 ID");
+    setPhase("error");
+  }, [gameId, worldId]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [game?.narrative.length, streamText, scrollToBottom]);
+
+  // ── Choice agent ──
+
+  function fallbackChoices(): NarrativeOption[] {
+    return [
+      { label: "A", text: "主动采取行动，直面眼前的局面", dimensionId: "" },
+      { label: "B", text: "冷静观察周围，寻找更多线索", dimensionId: "" },
+      { label: "C", text: "尝试与对方沟通或交涉", dimensionId: "" },
+    ];
+  }
+
+  async function fetchChoices(
+    w: WorldSetting,
+    g: GameState,
+    narrativeText: string
+  ): Promise<NarrativeOption[]> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const messages = choiceGenPrompt(w, g, narrativeText);
+        let response = "";
+        for await (const chunk of chatCompletionStream(messages, {
+          max_tokens: 512,
+        })) {
+          response += chunk;
+        }
+        const choices = parseChoiceResponse(response);
+        if (choices.length >= 2) return choices;
+      } catch {
+        // retry
+      }
+    }
+    return fallbackChoices();
+  }
+
+  // ── AI generation ──
+
+  async function generateOpening(w: WorldSetting, g: GameState) {
+    setStreaming(true);
+    setStreamText("");
+    try {
+      const messages = openingPrompt(w);
+      let full = "";
+      for await (const chunk of chatCompletionStream(messages)) {
+        full += chunk;
+        setStreamText(cleanNarrativeText(full));
+      }
+
+      const narrativeText = cleanNarrativeText(full);
+      const msg: NarrativeMessage = {
+        role: "narrator",
+        content: narrativeText,
+        timestamp: Date.now(),
+      };
+      const withNarrative = {
+        ...g,
+        narrative: [...g.narrative, msg],
+        updatedAt: Date.now(),
+      };
+      setGame(withNarrative);
+      saveGame(withNarrative);
+      setStreaming(false);
+      setStreamText("");
+      setPhase("playing");
+
+      setLoadingChoices(true);
+      const choices = await fetchChoices(w, withNarrative, narrativeText);
+      const updated = { ...withNarrative, pendingChoices: choices };
+      setGame(updated);
+      saveGame(updated);
+      setPendingChoices(choices);
+      setLoadingChoices(false);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "生成开场白失败"
+      );
+      setPhase("error");
+      setStreaming(false);
+      setStreamText("");
+      setLoadingChoices(false);
+    }
+  }
+
+  async function generateNarrative(
+    g: GameState,
+    playerInput: string
+  ) {
+    if (!world) return;
+    setStreaming(true);
+    setStreamText("");
+    try {
+      const messages = narrativePrompt(world, g, playerInput);
+      let full = "";
+      for await (const chunk of chatCompletionStream(messages)) {
+        full += chunk;
+        setStreamText(cleanNarrativeText(full));
+      }
+
+      const narrativeText = cleanNarrativeText(full);
+      const narratorMsg: NarrativeMessage = {
+        role: "narrator",
+        content: narrativeText,
+        timestamp: Date.now(),
+      };
+      const withNarrative = {
+        ...g,
+        narrative: [...g.narrative, narratorMsg],
+        updatedAt: Date.now(),
+      };
+      setGame(withNarrative);
+      saveGame(withNarrative);
+      setStreaming(false);
+      setStreamText("");
+
+      setLoadingChoices(true);
+      const choices = await fetchChoices(world, withNarrative, narrativeText);
+      const updated = { ...withNarrative, pendingChoices: choices };
+      setGame(updated);
+      saveGame(updated);
+      setPendingChoices(choices);
+      setLoadingChoices(false);
+    } catch (err) {
+      const errMsg =
+        err instanceof Error ? err.message : "AI 响应失败";
+      setError(errMsg);
+      const sysMsg: NarrativeMessage = {
+        role: "system",
+        content: `[错误] ${errMsg}`,
+        timestamp: Date.now(),
+      };
+      const errorGame = {
+        ...g,
+        narrative: [...g.narrative, sysMsg],
+        updatedAt: Date.now(),
+      };
+      setGame(errorGame);
+      saveGame(errorGame);
+      setStreaming(false);
+      setStreamText("");
+      setLoadingChoices(false);
+    }
+  }
+
+  async function generateEndingText(
+    w: WorldSetting,
+    g: GameState,
+    ending: Ending
+  ) {
+    setStreaming(true);
+    setStreamText("");
+    try {
+      const messages = endingPrompt(w, g, ending);
+      let full = "";
+      for await (const chunk of chatCompletionStream(messages)) {
+        full += chunk;
+        setStreamText(full);
+      }
+      const msg: NarrativeMessage = {
+        role: "narrator",
+        content: full,
+        timestamp: Date.now(),
+      };
+      const updated = {
+        ...g,
+        narrative: [...g.narrative, msg],
+        updatedAt: Date.now(),
+      };
+      setGame(updated);
+      saveGame(updated);
+      setPhase("ending");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "生成结局失败"
+      );
+    } finally {
+      setStreaming(false);
+      setStreamText("");
+    }
+  }
+
+  // ── Player actions ──
+
+  async function judgeDimension(
+    w: WorldSetting,
+    actionText: string
+  ): Promise<string> {
+    const dims = w.dimensions || [];
+    if (dims.length === 0) return "";
+    const dimNames = dims.map((d) => d.name);
+    try {
+      const messages = dimensionJudgePrompt(dimNames, actionText);
+      let response = "";
+      for await (const chunk of chatCompletionStream(messages, {
+        max_tokens: 64,
+      })) {
+        response += chunk;
+      }
+      const trimmed = response.trim();
+      for (const name of dimNames) {
+        if (trimmed.includes(name)) return name;
+      }
+    } catch {
+      // fallback: no dimension change
+    }
+    return "";
+  }
+
+  async function handlePlayerAction(actionText: string) {
+    if (!world || !game || streaming || loadingChoices) return;
+
+    const playerMsg: NarrativeMessage = {
+      role: "player",
+      content: actionText,
+      timestamp: Date.now(),
+    };
+
+    setPendingChoices([]);
+    setShowFreeInput(false);
+    setFreeText("");
+    setLoadingChoices(true);
+
+    const judgedDim = await judgeDimension(world, actionText);
+    const dims = { ...(game.dimensions || {}) };
+    if (judgedDim) {
+      dims[judgedDim] = (dims[judgedDim] || 0) + 1;
+    }
+
+    let updated: GameState = {
+      ...game,
+      narrative: [...game.narrative, playerMsg],
+      dimensions: dims,
+      pendingChoices: [],
+      updatedAt: Date.now(),
+    };
+
+    setLoadingChoices(false);
+
+    const triggered = checkKeyNodeTrigger(world, updated);
+    if (triggered) {
+      const sysMsg: NarrativeMessage = {
+        role: "system",
+        content: `—— 关键抉择 ——`,
+        timestamp: Date.now(),
+      };
+      updated = {
+        ...updated,
+        narrative: [...updated.narrative, sysMsg],
+      };
+      setGame(updated);
+      saveGame(updated);
+      setActiveNode(triggered);
+      setPhase("node");
+      return;
+    }
+
+    setGame(updated);
+    saveGame(updated);
+    await generateNarrative(updated, actionText);
+  }
+
+  function handleButtonChoice(choice: NarrativeOption) {
+    handlePlayerAction(choice.text);
+  }
+
+  function handleFreeText() {
+    if (!freeText.trim()) return;
+    handlePlayerAction(freeText.trim());
+  }
+
+  async function handleNodeChoice(
+    choiceId: string,
+    choiceText: string
+  ) {
+    if (!world || !game || !activeNode) return;
+
+    const choice: ChoiceMade = {
+      nodeId: activeNode.id,
+      choiceId,
+      choiceText,
+      timestamp: Date.now(),
+    };
+
+    const sysMsg: NarrativeMessage = {
+      role: "system",
+      content: `[关键抉择] ${activeNode.title}\n你选择了：${choiceText}`,
+      timestamp: Date.now(),
+    };
+
+    const triggered = [
+      ...(game.triggeredNodes || []),
+      activeNode.id,
+    ];
+
+    const updated: GameState = {
+      ...game,
+      currentNodeIndex: triggered.length,
+      choicesMade: [...game.choicesMade, choice],
+      narrative: [...game.narrative, sysMsg],
+      triggeredNodes: triggered,
+      pendingChoices: [],
+      updatedAt: Date.now(),
+    };
+
+    setGame(updated);
+    saveGame(updated);
+    setActiveNode(null);
+
+    const ending = checkEnding(world, updated);
+    if (ending) {
+      updated.endingReached = ending.id;
+      setGame(updated);
+      saveGame(updated);
+      generateEndingText(world, updated, ending);
+      return;
+    }
+
+    setPhase("playing");
+    await generateNarrative(
+      updated,
+      `[我在关键节点「${activeNode.title}」选择了：${choiceText}]`
+    );
+  }
+
+  function handleFreeTextKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleFreeText();
+    }
+  }
+
+  // ── Render ──
+
+  if (phase === "error") {
+    return (
+      <section className="script-section">
+        <p className="inline-error">{error}</p>
+        <div className="script-command-row">
+          <a href="/" className="primary-button">
+            返回首页
+          </a>
+        </div>
+      </section>
+    );
+  }
+
+  if (phase === "loading" || !world || !game) {
+    return (
+      <section className="script-section">
+        <div className="loading-dots">加载中</div>
+      </section>
+    );
+  }
+
+  const triggeredCount = (game.triggeredNodes || []).length;
+  const totalNodes = world.keyNodes.length;
+  const dims = world.dimensions || [];
+
+  return (
+    <>
+      {/* Progress Bar */}
+      <div className="news-stat-strip">
+        <span>
+          节点 {triggeredCount}/{totalNodes}
+        </span>
+        <span>选择 {game.choicesMade.length} 次</span>
+        <span>
+          {phase === "ending"
+            ? "已完结"
+            : phase === "node"
+              ? "关键抉择"
+              : "探索中"}
+        </span>
+      </div>
+
+      {/* Dimension Progress */}
+      {dims.length > 0 && phase !== "ending" && (
+        <div className="dimension-bar">
+          {dims.map((d) => (
+            <span key={d.id} className="dimension-tag">
+              {d.name} {(game.dimensions || {})[d.id] || 0}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Narrative Scroll */}
+      <div className="narrative-scroll" ref={scrollRef}>
+        {game.narrative.map((msg, i) => (
+          <div
+            key={i}
+            className={`narrative-block ${msg.role === "player" ? "narrative-player" : ""}`}
+          >
+            <span
+              className={`narrative-role narrative-role-${msg.role}`}
+            >
+              {msg.role === "narrator"
+                ? "叙事"
+                : msg.role === "player"
+                  ? world.protagonist.name
+                  : msg.role === "npc"
+                    ? msg.speaker
+                    : "系统"}
+            </span>
+            <p className="narrative-content">{msg.content}</p>
+          </div>
+        ))}
+
+        {streaming && streamText && (
+          <div className="narrative-block">
+            <span className="narrative-role narrative-role-narrator">
+              叙事
+            </span>
+            <p className="narrative-content streaming-cursor">
+              {streamText}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Key Node Choices (buttons only, no free text) */}
+      {phase === "node" && activeNode && (
+        <div className="node-indicator">
+          <p className="manuscript-kicker">CRITICAL DECISION</p>
+          <h3>{activeNode.title}</h3>
+          <p>{activeNode.description}</p>
+          <div className="narrative-choices">
+            {activeNode.choices.map((choice, i) => (
+              <button
+                key={choice.id}
+                className="narrative-choice-btn"
+                onClick={() =>
+                  handleNodeChoice(choice.id, choice.text)
+                }
+                disabled={streaming}
+              >
+                <span className="narrative-choice-label">
+                  {ALPHABET[i]}
+                </span>
+                <span className="narrative-choice-text">
+                  {choice.text}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Ending */}
+      {phase === "ending" && (
+        <div
+          className="node-indicator"
+          style={{ borderColor: "var(--ink)" }}
+        >
+          <p className="manuscript-kicker">THE END</p>
+          <h3>
+            {world.endings.find((e) => e.id === game.endingReached)
+              ?.title || "故事结束"}
+          </h3>
+          <div className="script-command-row">
+            <a href="/" className="primary-button">
+              返回首页
+            </a>
+            <a
+              href={`/game?worldId=${world.id}`}
+              className="secondary-button"
+            >
+              重新开始
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Regular Choices (3 buttons + optional free text) */}
+      {phase === "playing" && !streaming && (
+        <div className="narrative-action-area">
+          {loadingChoices ? (
+            <div className="loading-dots">生成选项中</div>
+          ) : pendingChoices.length > 0 ? (
+            <>
+              <p className="narrative-action-header">你选择——</p>
+              <div className="narrative-choices">
+                {pendingChoices.map((c) => (
+                  <button
+                    key={c.label}
+                    className="narrative-choice-btn"
+                    onClick={() => handleButtonChoice(c)}
+                    disabled={loadingChoices}
+                  >
+                    <span className="narrative-choice-label">
+                      {c.label}
+                    </span>
+                    <span className="narrative-choice-text">
+                      {c.text}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {!showFreeInput ? (
+            <div className="script-command-row">
+              <button
+                type="button"
+                className="outline-button"
+                onClick={() => setShowFreeInput(true)}
+              >
+                自由行动
+              </button>
+              <a href="/" className="outline-button">
+                返回首页
+              </a>
+            </div>
+          ) : (
+            <div style={{ marginTop: 14 }}>
+              <textarea
+                className="question-box"
+                placeholder="描述你的行动...（Enter 发送）"
+                value={freeText}
+                onChange={(e) => setFreeText(e.target.value)}
+                onKeyDown={handleFreeTextKeyDown}
+                rows={2}
+              />
+              <div className="script-command-row">
+                <button
+                  className="primary-button"
+                  onClick={handleFreeText}
+                  disabled={!freeText.trim()}
+                >
+                  发送
+                </button>
+                <button
+                  type="button"
+                  className="outline-button"
+                  onClick={() => {
+                    setShowFreeInput(false);
+                    setFreeText("");
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Streaming indicator */}
+      {phase === "playing" && streaming && (
+        <div style={{ marginTop: 14 }}>
+          <div className="loading-dots">生成中</div>
+        </div>
+      )}
+    </>
+  );
+}

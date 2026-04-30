@@ -1,0 +1,6 @@
+{
+  "url": "https://newapi.thefool.chat",
+  "apiKey": "sk-xxx",
+  "model": "deepseek-v4-flash",
+  "creationModel": "deepseek-v4-pro"
+}

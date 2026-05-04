@@ -2,19 +2,33 @@ import { NextRequest } from "next/server";
 import fs from "fs";
 import path from "path";
 
-const SETTINGS_PATH = path.join(process.cwd(), "settings.json");
+const SETTINGS_PATHS = [
+  path.join(process.cwd(), "data", "settings.json"),
+  path.join(process.cwd(), "settings.json"),
+];
 
 function maskKey(key: string): string {
   if (!key || key.length <= 8) return key ? "****" : "";
   return key.slice(0, 4) + "****" + key.slice(-4);
 }
 
-function readFromFile(): Record<string, string> | null {
-  try {
-    return JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
-  } catch {
-    return null;
+function findSettingsPath(): string {
+  for (const p of SETTINGS_PATHS) {
+    try {
+      fs.accessSync(p);
+      return p;
+    } catch {}
   }
+  return SETTINGS_PATHS[0];
+}
+
+function readFromFile(): Record<string, string> | null {
+  for (const p of SETTINGS_PATHS) {
+    try {
+      return JSON.parse(fs.readFileSync(p, "utf-8"));
+    } catch {}
+  }
+  return null;
 }
 
 function readFromEnv(): Record<string, string> {
@@ -47,7 +61,7 @@ export async function POST(req: NextRequest) {
 
   if (!existing) {
     return new Response(
-      JSON.stringify({ error: "云端部署模式下无法修改配置，请通过环境变量设置。" }),
+      JSON.stringify({ error: "无法写入 settings.json，请检查文件权限或通过环境变量配置。" }),
       { status: 403, headers: { "Content-Type": "application/json" } }
     );
   }
@@ -63,7 +77,7 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(updated, null, 2), "utf-8");
+    fs.writeFileSync(findSettingsPath(), JSON.stringify(updated, null, 2), "utf-8");
     return new Response(
       JSON.stringify({
         url: updated.url,
@@ -75,7 +89,7 @@ export async function POST(req: NextRequest) {
     );
   } catch {
     return new Response(
-      JSON.stringify({ error: "云端部署模式下无法修改配置，请通过环境变量设置。" }),
+      JSON.stringify({ error: "无法写入 settings.json，请检查文件权限或通过环境变量配置。" }),
       { status: 403, headers: { "Content-Type": "application/json" } }
     );
   }

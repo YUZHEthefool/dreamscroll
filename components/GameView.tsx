@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { chatCompletionStream } from "@/lib/ai";
 import {
@@ -485,6 +485,7 @@ export default function GameView({ gameId, worldId }: Props) {
       setError(
         err instanceof Error ? err.message : "生成结局失败"
       );
+      setPhase("ending");
     } finally {
       setStreaming(false);
       setStreamText("");
@@ -509,7 +510,9 @@ export default function GameView({ gameId, worldId }: Props) {
         response += chunk;
       }
       const trimmed = response.trim();
-      for (const name of dimNames) {
+      if (dimNames.includes(trimmed)) return trimmed;
+      const sorted = [...dimNames].sort((a, b) => b.length - a.length);
+      for (const name of sorted) {
         if (trimmed.includes(name)) return name;
       }
     } catch {
@@ -728,7 +731,7 @@ export default function GameView({ gameId, worldId }: Props) {
             </div>
           </div>
           {checkpoints.length === 0 ? (
-            <p className="script-muted-note">暂无存档点。点击「手��存档」保存当前进度。</p>
+            <p className="script-muted-note">暂无存档点。点击「手动存档」保存当前进度。</p>
           ) : (
             <ul className="checkpoint-list">
               {[...checkpoints].reverse().map((cp) => (
@@ -873,6 +876,7 @@ export default function GameView({ gameId, worldId }: Props) {
             {world.endings.find((e) => e.id === game.endingReached)
               ?.title || "故事结束"}
           </h3>
+          {error && <p className="inline-error">{error}</p>}
           <div className="script-command-row">
             <a href="/" className="primary-button">
               返回首页

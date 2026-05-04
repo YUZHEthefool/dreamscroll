@@ -1,0 +1,6 @@
+{
+  "url": "https://api.openai.com",
+  "apiKey": "sk-your-api-key",
+  "model": "gpt-4o",
+  "creationModel": ""
+}

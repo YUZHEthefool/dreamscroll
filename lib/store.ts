@@ -1,7 +1,8 @@
-import { WorldSetting, GameState, GameSave } from "./types";
+import { WorldSetting, GameState, GameSave, Checkpoint } from "./types";
 
 const WORLDS_KEY = "vibenovel_worlds";
 const GAMES_KEY = "vibenovel_games";
+const CHECKPOINTS_PREFIX = "vibenovel_cp_";
 
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -27,9 +28,13 @@ export function saveWorld(world: WorldSetting) {
 }
 
 export function deleteWorld(id: string) {
+  const allGames = listGames();
+  for (const g of allGames) {
+    if (g.worldId === id) deleteCheckpoints(g.id);
+  }
   const worlds = listWorlds().filter((w) => w.id !== id);
   localStorage.setItem(WORLDS_KEY, JSON.stringify(worlds));
-  const games = listGames().filter((g) => g.worldId !== id);
+  const games = allGames.filter((g) => g.worldId !== id);
   localStorage.setItem(GAMES_KEY, JSON.stringify(games));
 }
 
@@ -56,6 +61,7 @@ export function getGame(id: string): GameState | undefined {
 export function deleteGame(id: string) {
   const games = listGames().filter((g) => g.id !== id);
   localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+  deleteCheckpoints(id);
 }
 
 export function getFullSave(gameId: string): GameSave | null {
@@ -68,4 +74,30 @@ export function getFullSave(gameId: string): GameSave | null {
 
 export function genId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// ── Checkpoints ──
+
+function cpKey(gameId: string): string {
+  return CHECKPOINTS_PREFIX + gameId;
+}
+
+export function listCheckpoints(gameId: string): Checkpoint[] {
+  return readJson<Checkpoint[]>(cpKey(gameId), []);
+}
+
+export function saveCheckpoint(gameId: string, label: string, snapshot: GameState) {
+  const cps = listCheckpoints(gameId);
+  cps.push({
+    id: genId(),
+    gameId,
+    label,
+    snapshot: JSON.parse(JSON.stringify(snapshot)),
+    createdAt: Date.now(),
+  });
+  localStorage.setItem(cpKey(gameId), JSON.stringify(cps));
+}
+
+export function deleteCheckpoints(gameId: string) {
+  localStorage.removeItem(cpKey(gameId));
 }

@@ -765,6 +765,97 @@ blockquote, h1, h2, h3, ol, p, ul { margin: 0; }
   white-space: pre-wrap;
 }
 
+/* ── Checkpoint / Rollback ── */
+.checkpoint-toggle {
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: .78rem;
+  letter-spacing: .06em;
+  cursor: pointer;
+}
+
+.checkpoint-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.checkpoint-panel {
+  position: relative;
+  z-index: 2;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0,0,0,.16);
+  background: rgba(250,250,250,.96);
+}
+
+.checkpoint-panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.checkpoint-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.checkpoint-panel-title {
+  font-family: var(--font-mono);
+  font-size: .84rem;
+  letter-spacing: .12em;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+
+.checkpoint-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.checkpoint-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dotted rgba(0,0,0,.10);
+}
+
+.checkpoint-label {
+  font-size: .92rem;
+  color: var(--ink);
+  min-width: 0;
+  flex: 1 1;
+}
+
+.checkpoint-meta {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: .76rem;
+  color: var(--ink-faint);
+}
+
+/* ── Relationship Badge ── */
+.relation-badge {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: .8rem;
+  letter-spacing: .04em;
+  color: var(--ink-faint);
+}
+
+.relation-positive { color: #2a5a00; }
+.relation-negative { color: var(--accent); }
+
 /* ── Responsive ── */
 @media (min-width: 920px) {
   .page-shell {

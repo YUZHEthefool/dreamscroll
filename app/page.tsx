@@ -77,6 +77,9 @@ export default function Home() {
                 <a href="/create" className="primary-button">
                   新建世界
                 </a>
+                <a href="/settings" className="outline-button">
+                  API 配置
+                </a>
               </div>
               <p className="news-bulletin">
                 输入你的创意关键词（类型、风格、世界观灵感），AI

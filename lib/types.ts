@@ -13,6 +13,8 @@ export interface Character {
   beliefs?: string;
   motivation: string;
   vignette?: string;
+  affinity?: number;
+  lastSeen?: number;
 }
 
 export interface StoryDimension {
@@ -89,6 +91,14 @@ export interface GameState {
   endingReached?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Checkpoint {
+  id: string;
+  gameId: string;
+  label: string;
+  snapshot: GameState;
+  createdAt: number;
 }
 
 export interface GameSave {

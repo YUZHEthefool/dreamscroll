@@ -7,12 +7,20 @@ import {
   endingPrompt,
   choiceGenPrompt,
   dimensionJudgePrompt,
+  npcExtractPrompt,
 } from "@/lib/prompts";
 import {
   cleanNarrativeText,
   parseChoiceResponse,
 } from "@/lib/markdown-parser";
-import { getWorld, getGame, saveGame, genId } from "@/lib/store";
+import {
+  getWorld,
+  getGame,
+  saveGame,
+  genId,
+  saveCheckpoint,
+  listCheckpoints,
+} from "@/lib/store";
 import {
   WorldSetting,
   GameState,
@@ -21,6 +29,8 @@ import {
   ChoiceMade,
   KeyNode,
   Ending,
+  Checkpoint,
+  Character,
 } from "@/lib/types";
 
 interface Props {
@@ -31,6 +41,7 @@ interface Props {
 type Phase = "loading" | "playing" | "node" | "ending" | "error";
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const AUTO_CP_INTERVAL = 5;
 
 function checkKeyNodeTrigger(
   w: WorldSetting,
@@ -102,9 +113,14 @@ export default function GameView({ gameId, worldId }: Props) {
   const [freeText, setFreeText] = useState("");
   const [showFreeInput, setShowFreeInput] = useState(false);
   const [error, setError] = useState("");
+  const [showCheckpoints, setShowCheckpoints] = useState(false);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [autoCP, setAutoCP] = useState(true);
+  const [showRelations, setShowRelations] = useState(false);
   const lastActionRef = useRef<{ gameState: GameState; text: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
+  const playerTurnCountRef = useRef(0);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -123,6 +139,9 @@ export default function GameView({ gameId, worldId }: Props) {
         if (w) {
           setWorld(w);
           setGame(g);
+          playerTurnCountRef.current = g.narrative.filter(
+            (m) => m.role === "player"
+          ).length;
           if (g.endingReached) {
             setPhase("ending");
           } else {
@@ -177,6 +196,90 @@ export default function GameView({ gameId, worldId }: Props) {
   useEffect(() => {
     scrollToBottom();
   }, [game?.narrative.length, streamText, scrollToBottom]);
+
+  // ── NPC extraction ──
+
+  async function extractAndUpdateNPCs(
+    g: GameState,
+    narrativeText: string
+  ): Promise<GameState> {
+    try {
+      const messages = npcExtractPrompt(narrativeText);
+      let response = "";
+      for await (const chunk of chatCompletionStream(messages, {
+        max_tokens: 256,
+      })) {
+        response += chunk;
+      }
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) return g;
+      const npcs: { name: string; title: string; delta: number }[] =
+        JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(npcs) || npcs.length === 0) return g;
+
+      const chars = [...g.sideCharacters];
+      for (const npc of npcs) {
+        if (!npc.name) continue;
+        const existing = chars.find((c) => c.name === npc.name);
+        if (existing) {
+          existing.affinity = (existing.affinity || 0) + (npc.delta || 0);
+          existing.lastSeen = Date.now();
+        } else {
+          chars.push({
+            name: npc.name,
+            title: npc.title || "",
+            appearance: "",
+            personality: "",
+            background: "",
+            abilities: "",
+            motivation: "",
+            affinity: npc.delta || 0,
+            lastSeen: Date.now(),
+          });
+        }
+      }
+      return { ...g, sideCharacters: chars };
+    } catch {
+      return g;
+    }
+  }
+
+  // ── Checkpoints ──
+
+  function autoCheckpoint(g: GameState, label: string) {
+    if (!autoCP) return;
+    saveCheckpoint(g.id, label, g);
+  }
+
+  function handleManualSave() {
+    if (!game) return;
+    const turn = game.narrative.filter((m) => m.role === "player").length;
+    saveCheckpoint(game.id, `手动存档 · 第 ${turn} 回合`, game);
+    refreshCheckpoints(game.id);
+  }
+
+  function refreshCheckpoints(gameId: string) {
+    setCheckpoints(listCheckpoints(gameId));
+  }
+
+  function handleRollback(cp: Checkpoint) {
+    const restored = { ...cp.snapshot, updatedAt: Date.now() };
+    setGame(restored);
+    saveGame(restored);
+    setPendingChoices(restored.pendingChoices || []);
+    setActiveNode(null);
+    setShowCheckpoints(false);
+    setError("");
+    lastActionRef.current = null;
+    playerTurnCountRef.current = restored.narrative.filter(
+      (m) => m.role === "player"
+    ).length;
+    if (restored.endingReached) {
+      setPhase("ending");
+    } else {
+      setPhase("playing");
+    }
+  }
 
   // ── Choice agent ──
 
@@ -237,17 +340,29 @@ export default function GameView({ gameId, worldId }: Props) {
       };
       setGame(withNarrative);
       saveGame(withNarrative);
+      autoCheckpoint(withNarrative, "开场");
       setStreaming(false);
       setStreamText("");
       setPhase("playing");
 
       setLoadingChoices(true);
       const choices = await fetchChoices(w, withNarrative, narrativeText);
-      const updated = { ...withNarrative, pendingChoices: choices };
-      setGame(updated);
-      saveGame(updated);
+      const withChoicesOpening = { ...withNarrative, pendingChoices: choices };
+      setGame(withChoicesOpening);
+      saveGame(withChoicesOpening);
       setPendingChoices(choices);
       setLoadingChoices(false);
+
+      extractAndUpdateNPCs(withChoicesOpening, narrativeText).then((withNPCs) => {
+        if (withNPCs !== withChoicesOpening) {
+          setGame(prev => {
+            if (!prev) return prev;
+            const merged = { ...prev, sideCharacters: withNPCs.sideCharacters };
+            saveGame(merged);
+            return merged;
+          });
+        }
+      });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "生成开场白失败"
@@ -293,12 +408,23 @@ export default function GameView({ gameId, worldId }: Props) {
 
       setLoadingChoices(true);
       const choices = await fetchChoices(world, withNarrative, narrativeText);
-      const updated = { ...withNarrative, pendingChoices: choices };
-      setGame(updated);
-      saveGame(updated);
+      const withChoices = { ...withNarrative, pendingChoices: choices };
+      setGame(withChoices);
+      saveGame(withChoices);
       setPendingChoices(choices);
       setLoadingChoices(false);
       lastActionRef.current = null;
+
+      extractAndUpdateNPCs(withChoices, narrativeText).then((withNPCs) => {
+        if (withNPCs !== withChoices) {
+          setGame(prev => {
+            if (!prev) return prev;
+            const merged = { ...prev, sideCharacters: withNPCs.sideCharacters };
+            saveGame(merged);
+            return merged;
+          });
+        }
+      });
     } catch (err) {
       const errMsg =
         err instanceof Error ? err.message : "AI 响应失败";
@@ -406,6 +532,11 @@ export default function GameView({ gameId, worldId }: Props) {
     setFreeText("");
     setLoadingChoices(true);
 
+    playerTurnCountRef.current += 1;
+    if (playerTurnCountRef.current % AUTO_CP_INTERVAL === 0) {
+      autoCheckpoint(game, `第 ${playerTurnCountRef.current} 回合`);
+    }
+
     const judgedDim = await judgeDimension(world, actionText);
     const dims = { ...(game.dimensions || {}) };
     if (judgedDim) {
@@ -424,6 +555,7 @@ export default function GameView({ gameId, worldId }: Props) {
 
     const triggered = checkKeyNodeTrigger(world, updated);
     if (triggered) {
+      autoCheckpoint(updated, `节点前：${triggered.title}`);
       const sysMsg: NarrativeMessage = {
         role: "system",
         content: `—— 关键抉择 ——`,
@@ -490,14 +622,15 @@ export default function GameView({ gameId, worldId }: Props) {
 
     setGame(updated);
     saveGame(updated);
+    autoCheckpoint(updated, `抉择后：${activeNode.title}`);
     setActiveNode(null);
 
     const ending = checkEnding(world, updated);
     if (ending) {
-      updated.endingReached = ending.id;
-      setGame(updated);
-      saveGame(updated);
-      generateEndingText(world, updated, ending);
+      const withEnding = { ...updated, endingReached: ending.id };
+      setGame(withEnding);
+      saveGame(withEnding);
+      generateEndingText(world, withEnding, ending);
       return;
     }
 
@@ -556,8 +689,72 @@ export default function GameView({ gameId, worldId }: Props) {
             : phase === "node"
               ? "关键抉择"
               : "探索中"}
+          {!streaming && (
+            <button
+              type="button"
+              className="checkpoint-toggle"
+              onClick={() => {
+                refreshCheckpoints(game.id);
+                setShowCheckpoints((v) => !v);
+              }}
+            >
+              {showCheckpoints ? "关闭回溯" : "回溯"}
+            </button>
+          )}
         </span>
       </div>
+
+      {/* Checkpoint Panel */}
+      {showCheckpoints && (
+        <div className="checkpoint-panel">
+          <div className="checkpoint-panel-header">
+            <p className="checkpoint-panel-title">存档点</p>
+            <div className="checkpoint-actions">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleManualSave}
+                disabled={streaming}
+              >
+                手动存档
+              </button>
+              <button
+                type="button"
+                className={autoCP ? "secondary-button" : "outline-button"}
+                onClick={() => setAutoCP((v) => !v)}
+              >
+                {autoCP ? "自动存档：开" : "自动存档：关"}
+              </button>
+            </div>
+          </div>
+          {checkpoints.length === 0 ? (
+            <p className="script-muted-note">暂无存档点。点击「手��存档」保存当前进度。</p>
+          ) : (
+            <ul className="checkpoint-list">
+              {[...checkpoints].reverse().map((cp) => (
+                <li key={cp.id} className="checkpoint-item">
+                  <span className="checkpoint-label">{cp.label}</span>
+                  <span className="checkpoint-meta">
+                    {new Date(cp.createdAt).toLocaleTimeString("zh-CN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    {" · "}
+                    {cp.snapshot.narrative.length} 段叙事
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => handleRollback(cp)}
+                  >
+                    回溯到此
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Dimension Progress */}
       {dims.length > 0 && phase !== "ending" && (
@@ -567,6 +764,39 @@ export default function GameView({ gameId, worldId }: Props) {
               {d.name} {(game.dimensions || {})[d.id] || 0}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Relationship Panel Toggle */}
+      {game.sideCharacters.length > 0 && phase !== "ending" && (
+        <div className="dimension-bar">
+          <button
+            type="button"
+            className="checkpoint-toggle"
+            onClick={() => setShowRelations((v) => !v)}
+          >
+            {showRelations ? "隐藏人物" : `人物关系 (${game.sideCharacters.length})`}
+          </button>
+        </div>
+      )}
+
+      {/* Relationship Panel */}
+      {showRelations && game.sideCharacters.length > 0 && (
+        <div className="checkpoint-panel">
+          <p className="checkpoint-panel-title">人物关系</p>
+          <ul className="checkpoint-list">
+            {game.sideCharacters.map((c, i) => (
+              <li key={i} className="checkpoint-item">
+                <span className="checkpoint-label">
+                  {c.name}
+                  {c.title ? ` · ${c.title}` : ""}
+                </span>
+                <span className={`relation-badge ${(c.affinity || 0) > 0 ? "relation-positive" : (c.affinity || 0) < 0 ? "relation-negative" : ""}`}>
+                  {(c.affinity || 0) > 0 ? "+" : ""}{c.affinity || 0}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

@@ -9,19 +9,23 @@ interface Settings {
   creationModel?: string;
 }
 
+const SETTINGS_PATHS = [
+  path.join(process.cwd(), "data", "settings.json"),
+  path.join(process.cwd(), "settings.json"),
+];
+
 function loadSettings(): Settings {
-  try {
-    const filePath = path.join(process.cwd(), "settings.json");
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {
-      url: process.env.API_URL || "",
-      apiKey: process.env.API_KEY || "",
-      model: process.env.API_MODEL || "",
-      creationModel: process.env.API_CREATION_MODEL || "",
-    };
+  for (const p of SETTINGS_PATHS) {
+    try {
+      return JSON.parse(fs.readFileSync(p, "utf-8"));
+    } catch {}
   }
+  return {
+    url: process.env.API_URL || "",
+    apiKey: process.env.API_KEY || "",
+    model: process.env.API_MODEL || "",
+    creationModel: process.env.API_CREATION_MODEL || "",
+  };
 }
 
 function buildUrl(base: string): string {
@@ -38,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   if (!settings.url || !settings.apiKey) {
     return new Response(
-      JSON.stringify({ error: "API 未配置。请设置 settings.json 或环境变量 API_URL / API_KEY。" }),
+      JSON.stringify({ error: "API 未配置。请设置 settings.json（或环境变量 API_URL / API_KEY）。" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }

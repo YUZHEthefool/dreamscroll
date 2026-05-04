@@ -2,6 +2,10 @@
 
 # api secrets
 settings.json
+data/settings.json
+
+# wrangler cache
+.wrangler
 
 # dependencies
 /node_modules
@@ -39,8 +43,6 @@ yarn-error.log*
 # vercel
 .vercel
 
-# cloudflare
-.open-next
 
 # typescript
 *.tsbuildinfo

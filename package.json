@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "build:cf": "npx @opennextjs/cloudflare build",
-    "deploy": "npm run build:cf && npx wrangler deploy"
+    "docker": "docker compose up -d"
   },
   "dependencies": {
     "next": "16.2.4",
@@ -15,11 +14,9 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.19.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "typescript": "^5",
-    "wrangler": "^4.87.0"
+    "typescript": "^5"
   }
 }

@@ -102,6 +102,7 @@ export default function GameView({ gameId, worldId }: Props) {
   const [freeText, setFreeText] = useState("");
   const [showFreeInput, setShowFreeInput] = useState(false);
   const [error, setError] = useState("");
+  const lastActionRef = useRef<{ gameState: GameState; text: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
 
@@ -263,6 +264,7 @@ export default function GameView({ gameId, worldId }: Props) {
     playerInput: string
   ) {
     if (!world) return;
+    lastActionRef.current = { gameState: g, text: playerInput };
     setStreaming(true);
     setStreamText("");
     try {
@@ -296,6 +298,7 @@ export default function GameView({ gameId, worldId }: Props) {
       saveGame(updated);
       setPendingChoices(choices);
       setLoadingChoices(false);
+      lastActionRef.current = null;
     } catch (err) {
       const errMsg =
         err instanceof Error ? err.message : "AI 响应失败";
@@ -316,6 +319,13 @@ export default function GameView({ gameId, worldId }: Props) {
       setStreamText("");
       setLoadingChoices(false);
     }
+  }
+
+  async function handleRetryNarrative() {
+    if (!lastActionRef.current || !world || streaming) return;
+    const { gameState, text } = lastActionRef.current;
+    setError("");
+    await generateNarrative(gameState, text);
   }
 
   async function generateEndingText(
@@ -650,6 +660,21 @@ export default function GameView({ gameId, worldId }: Props) {
       {/* Regular Choices (3 buttons + optional free text) */}
       {phase === "playing" && !streaming && (
         <div className="narrative-action-area">
+          {lastActionRef.current && !loadingChoices && pendingChoices.length === 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <p className="inline-error">{error || "生成失败"}</p>
+              <div className="script-command-row">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleRetryNarrative}
+                >
+                  重试
+                </button>
+              </div>
+            </div>
+          )}
+
           {loadingChoices ? (
             <div className="loading-dots">生成选项中</div>
           ) : pendingChoices.length > 0 ? (

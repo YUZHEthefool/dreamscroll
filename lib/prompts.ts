@@ -448,3 +448,22 @@ ${choicesText}
     },
   ];
 }
+
+export function npcExtractPrompt(narrativeText: string): ChatMessage[] {
+  return [
+    {
+      role: "user",
+      content: `从以下叙事文本中提取出场的NPC角色（不包括主角/玩家"你"）。
+对每个NPC，判断本段叙事中他对主角的态度变化。
+
+叙事文本：
+${narrativeText.slice(-800)}
+
+请严格按以下JSON格式回复，不要添加其他内容：
+[{"name":"角色名","title":"身份","delta":1}]
+
+delta取值：-2（敌意加深）-1（轻微负面）0（中立/无变化）1（轻微好感）2（好感加深）
+如果没有NPC出场，回复空数组 []`,
+    },
+  ];
+}

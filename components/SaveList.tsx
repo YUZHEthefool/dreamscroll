@@ -13,12 +13,14 @@ export default function SaveList() {
   }, []);
 
   function handleDelete(worldId: string) {
+    if (!window.confirm("确定要删除这个世界及其所有存档吗？此操作不可撤回。")) return;
     deleteWorld(worldId);
     setWorlds(listWorlds());
     setGames(listGames());
   }
 
   function handleDeleteGame(gameId: string) {
+    if (!window.confirm("确定要删除这个存档吗？此操作不可撤回。")) return;
     deleteGame(gameId);
     setGames(listGames());
   }

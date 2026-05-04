@@ -10,9 +10,18 @@ interface Settings {
 }
 
 function loadSettings(): Settings {
-  const filePath = path.join(process.cwd(), "settings.json");
-  const raw = fs.readFileSync(filePath, "utf-8");
-  return JSON.parse(raw);
+  try {
+    const filePath = path.join(process.cwd(), "settings.json");
+    const raw = fs.readFileSync(filePath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {
+      url: process.env.API_URL || "",
+      apiKey: process.env.API_KEY || "",
+      model: process.env.API_MODEL || "",
+      creationModel: process.env.API_CREATION_MODEL || "",
+    };
+  }
 }
 
 function buildUrl(base: string): string {
@@ -25,19 +34,11 @@ function buildUrl(base: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  let settings: Settings;
-  try {
-    settings = loadSettings();
-  } catch {
-    return new Response(
-      JSON.stringify({ error: "settings.json 读取失败，请检查文件是否存在且格式正确。" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
+  const settings = loadSettings();
 
   if (!settings.url || !settings.apiKey) {
     return new Response(
-      JSON.stringify({ error: "settings.json 中 url 或 apiKey 为空。" }),
+      JSON.stringify({ error: "API 未配置。请设置 settings.json 或环境变量 API_URL / API_KEY。" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }

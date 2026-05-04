@@ -1,0 +1,12 @@
+# Cloudflare Workers 环境变量（部署时使用）
+# 本地开发请使用 settings.json，无需配置此文件
+#
+# 部署步骤：
+# 1. 在 wrangler.toml 中填写 API_URL、API_MODEL、API_CREATION_MODEL
+# 2. 运行 npx wrangler secret put API_KEY 设置密钥
+# 3. 运行 npm run deploy 一键部署
+
+API_URL=https://api.openai.com
+API_KEY=sk-your-api-key
+API_MODEL=gpt-4o
+API_CREATION_MODEL=gpt-4o

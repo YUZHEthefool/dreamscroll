@@ -1,11 +1,16 @@
 "use client";
 import { useState, useEffect } from "react";
+import { resetImageConfigCache } from "@/lib/image-gen";
 
 interface SettingsData {
   url: string;
   apiKey: string;
   model: string;
   creationModel: string;
+  imageUrl: string;
+  imageApiKey: string;
+  imageModel: string;
+  imageApiType: string;
 }
 
 export default function SettingsEditor() {
@@ -14,6 +19,10 @@ export default function SettingsEditor() {
     apiKey: "",
     model: "",
     creationModel: "",
+    imageUrl: "",
+    imageApiKey: "",
+    imageModel: "",
+    imageApiType: "openai",
   });
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
@@ -49,6 +58,7 @@ export default function SettingsEditor() {
       } else {
         setForm(data);
         setStatus("保存成功");
+        resetImageConfigCache();
       }
     } catch {
       setStatus("保存失败：无法连接服务器");
@@ -77,6 +87,30 @@ export default function SettingsEditor() {
       }
     } catch {
       setStatus("连接失败：无法连接服务器");
+    }
+  }
+
+  async function handleTestImage() {
+    setStatus("测试图像 API...");
+    try {
+      const res = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: "A simple test: a small red circle on white background",
+          size: "256x256",
+        }),
+      });
+      const data = await res.json();
+      if (data.configured === false) {
+        setStatus("图像 API 未配置");
+      } else if (data.url) {
+        setStatus("图像 API 连接成功");
+      } else {
+        setStatus(`图像 API 失败：${data.error || res.status}`);
+      }
+    } catch {
+      setStatus("图像 API 连接失败：无法连接服务器");
     }
   }
 
@@ -148,6 +182,57 @@ export default function SettingsEditor() {
         </div>
       </section>
 
+      <section className="script-section">
+        <div className="script-section-heading">
+          <h2>插画生成配置（可选）</h2>
+          <p>配置图像生成 API，为世界和故事生成场景插画。未配置时游戏正常运行。</p>
+        </div>
+        <div className="settings-grid" style={{ marginTop: 16 }}>
+          <div className="settings-control">
+            <label className="settings-label">API 类型</label>
+            <select
+              className="settings-input"
+              value={form.imageApiType}
+              onChange={(e) => handleChange("imageApiType", e.target.value)}
+            >
+              <option value="openai">OpenAI 兼容 (/v1/images)</option>
+              <option value="chat">Chat 文生图 (/v1/chat)</option>
+              <option value="google">Google Gemini (/v1beta)</option>
+            </select>
+          </div>
+          <div className="settings-control">
+            <label className="settings-label">图像 API URL</label>
+            <input
+              className="settings-input"
+              type="text"
+              placeholder="https://api.openai.com"
+              value={form.imageUrl}
+              onChange={(e) => handleChange("imageUrl", e.target.value)}
+            />
+          </div>
+          <div className="settings-control">
+            <label className="settings-label">图像 API Key</label>
+            <input
+              className="settings-input"
+              type="password"
+              placeholder="sk-..."
+              value={form.imageApiKey}
+              onChange={(e) => handleChange("imageApiKey", e.target.value)}
+            />
+          </div>
+          <div className="settings-control">
+            <label className="settings-label">图像模型</label>
+            <input
+              className="settings-input"
+              type="text"
+              placeholder="dall-e-3"
+              value={form.imageModel}
+              onChange={(e) => handleChange("imageModel", e.target.value)}
+            />
+          </div>
+        </div>
+      </section>
+
       {status && <p className="settings-status">{status}</p>}
 
       <div className="script-command-row" style={{ marginTop: 20 }}>
@@ -165,6 +250,13 @@ export default function SettingsEditor() {
           onClick={handleTest}
         >
           测试连接
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={handleTestImage}
+        >
+          测试图像 API
         </button>
         <a href="/" className="outline-button">
           返回首页

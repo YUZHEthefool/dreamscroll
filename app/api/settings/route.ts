@@ -37,6 +37,10 @@ function readFromEnv(): Record<string, string> {
     apiKey: process.env.API_KEY || "",
     model: process.env.API_MODEL || "",
     creationModel: process.env.API_CREATION_MODEL || "",
+    imageUrl: process.env.IMAGE_API_URL || "",
+    imageApiKey: process.env.IMAGE_API_KEY || "",
+    imageModel: process.env.IMAGE_API_MODEL || "",
+    imageApiType: process.env.IMAGE_API_TYPE || "openai",
   };
 }
 
@@ -48,6 +52,10 @@ export async function GET() {
       apiKey: maskKey(settings.apiKey || ""),
       model: settings.model || "",
       creationModel: settings.creationModel || settings.model || "",
+      imageUrl: settings.imageUrl || "",
+      imageApiKey: maskKey(settings.imageApiKey || ""),
+      imageModel: settings.imageModel || "",
+      imageApiType: settings.imageApiType || "openai",
     }),
     { headers: { "Content-Type": "application/json" } }
   );
@@ -55,7 +63,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { url, apiKey, model, creationModel } = body;
+  const { url, apiKey, model, creationModel, imageUrl, imageApiKey, imageModel, imageApiType } = body;
 
   const existing = readFromFile();
 
@@ -74,6 +82,13 @@ export async function POST(req: NextRequest) {
         : existing.apiKey ?? "",
     model: model ?? existing.model ?? "",
     creationModel: creationModel ?? existing.creationModel ?? "",
+    imageUrl: imageUrl ?? existing.imageUrl ?? "",
+    imageApiKey:
+      imageApiKey && !imageApiKey.includes("****")
+        ? imageApiKey
+        : existing.imageApiKey ?? "",
+    imageModel: imageModel ?? existing.imageModel ?? "",
+    imageApiType: imageApiType ?? existing.imageApiType ?? "openai",
   };
 
   try {
@@ -84,6 +99,10 @@ export async function POST(req: NextRequest) {
         apiKey: maskKey(updated.apiKey),
         model: updated.model,
         creationModel: updated.creationModel,
+        imageUrl: updated.imageUrl,
+        imageApiKey: maskKey(updated.imageApiKey),
+        imageModel: updated.imageModel,
+        imageApiType: updated.imageApiType,
       }),
       { headers: { "Content-Type": "application/json" } }
     );

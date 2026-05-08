@@ -8,12 +8,15 @@ import {
   choiceGenPrompt,
   dimensionJudgePrompt,
   npcExtractPrompt,
+  sceneIllustrationPrompt,
+  endingIllustrationPrompt,
 } from "@/lib/prompts";
 import {
   cleanNarrativeText,
   parseChoiceResponse,
 } from "@/lib/markdown-parser";
 import { downloadStoryMarkdown } from "@/lib/story-export";
+import { isImageGenConfigured, generateImage } from "@/lib/image-gen";
 import StoryTree from "./StoryTree";
 import {
   getWorld,
@@ -44,6 +47,7 @@ type Phase = "loading" | "playing" | "node" | "ending" | "error";
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const AUTO_CP_INTERVAL = 5;
+const ILLUSTRATION_INTERVAL = 3;
 
 function checkKeyNodeTrigger(
   w: WorldSetting,
@@ -124,6 +128,9 @@ export default function GameView({ gameId, worldId }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
   const playerTurnCountRef = useRef(0);
+  const narratorCountRef = useRef(0);
+  const [illustrations, setIllustrations] = useState<Record<number, string>>({});
+  const [loadingIllustrations, setLoadingIllustrations] = useState<Set<number>>(new Set());
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -247,6 +254,71 @@ export default function GameView({ gameId, worldId }: Props) {
     }
   }
 
+  // ── Scene illustrations ──
+
+  async function generateSceneIllustration(
+    w: WorldSetting,
+    narrativeText: string,
+    messageIndex: number,
+    force = false
+  ) {
+    if (!force) {
+      narratorCountRef.current += 1;
+      if (narratorCountRef.current % ILLUSTRATION_INTERVAL !== 1 && narratorCountRef.current !== 1) return;
+    }
+    if (!(await isImageGenConfigured())) return;
+    setLoadingIllustrations((prev) => new Set(prev).add(messageIndex));
+    const prompt = sceneIllustrationPrompt(w, narrativeText);
+    const url = await generateImage(prompt);
+    setLoadingIllustrations((prev) => {
+      const next = new Set(prev);
+      next.delete(messageIndex);
+      return next;
+    });
+    if (url) {
+      setIllustrations((prev) => ({ ...prev, [messageIndex]: url }));
+      setGame((prev) => {
+        if (!prev) return prev;
+        const narrative = [...prev.narrative];
+        if (narrative[messageIndex]) {
+          narrative[messageIndex] = { ...narrative[messageIndex], illustration: url };
+        }
+        const updated = { ...prev, narrative };
+        saveGame(updated);
+        return updated;
+      });
+    }
+  }
+
+  async function generateEndingIllustration(
+    w: WorldSetting,
+    ending: Ending,
+    messageIndex: number
+  ) {
+    if (!(await isImageGenConfigured())) return;
+    setLoadingIllustrations((prev) => new Set(prev).add(messageIndex));
+    const prompt = endingIllustrationPrompt(w, ending);
+    const url = await generateImage(prompt);
+    setLoadingIllustrations((prev) => {
+      const next = new Set(prev);
+      next.delete(messageIndex);
+      return next;
+    });
+    if (url) {
+      setIllustrations((prev) => ({ ...prev, [messageIndex]: url }));
+      setGame((prev) => {
+        if (!prev) return prev;
+        const narrative = [...prev.narrative];
+        if (narrative[messageIndex]) {
+          narrative[messageIndex] = { ...narrative[messageIndex], illustration: url };
+        }
+        const updated = { ...prev, narrative };
+        saveGame(updated);
+        return updated;
+      });
+    }
+  }
+
   // ── Checkpoints ──
 
   function autoCheckpoint(g: GameState, label: string) {
@@ -356,6 +428,8 @@ export default function GameView({ gameId, worldId }: Props) {
       setPendingChoices(choices);
       setLoadingChoices(false);
 
+      generateSceneIllustration(w, narrativeText, withNarrative.narrative.length - 1, true);
+
       extractAndUpdateNPCs(withChoicesOpening, narrativeText).then((withNPCs) => {
         if (withNPCs !== withChoicesOpening) {
           setGame(prev => {
@@ -417,6 +491,8 @@ export default function GameView({ gameId, worldId }: Props) {
       setPendingChoices(choices);
       setLoadingChoices(false);
       lastActionRef.current = null;
+
+      generateSceneIllustration(world, narrativeText, withNarrative.narrative.length - 1);
 
       extractAndUpdateNPCs(withChoices, narrativeText).then((withNPCs) => {
         if (withNPCs !== withChoices) {
@@ -484,6 +560,7 @@ export default function GameView({ gameId, worldId }: Props) {
       setGame(updated);
       saveGame(updated);
       setPhase("ending");
+      generateEndingIllustration(w, ending, updated.narrative.length - 1);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "生成结局失败"
@@ -826,22 +903,35 @@ export default function GameView({ gameId, worldId }: Props) {
       {/* Narrative Scroll */}
       <div className="narrative-scroll" ref={scrollRef}>
         {game.narrative.map((msg, i) => (
-          <div
-            key={i}
-            className={`narrative-block ${msg.role === "player" ? "narrative-player" : ""}`}
-          >
-            <span
-              className={`narrative-role narrative-role-${msg.role}`}
+          <div key={i}>
+            <div
+              className={`narrative-block ${msg.role === "player" ? "narrative-player" : ""}`}
             >
-              {msg.role === "narrator"
-                ? "叙事"
-                : msg.role === "player"
-                  ? world.protagonist.name
-                  : msg.role === "npc"
-                    ? msg.speaker
-                    : "系统"}
-            </span>
-            <p className="narrative-content">{msg.content}</p>
+              <span
+                className={`narrative-role narrative-role-${msg.role}`}
+              >
+                {msg.role === "narrator"
+                  ? "叙事"
+                  : msg.role === "player"
+                    ? world.protagonist.name
+                    : msg.role === "npc"
+                      ? msg.speaker
+                      : "系统"}
+              </span>
+              <p className="narrative-content">{msg.content}</p>
+            </div>
+            {(msg.illustration || illustrations[i]) && (
+              <div className="scene-illustration">
+                <img
+                  src={msg.illustration || illustrations[i]}
+                  alt="场景插画"
+                  loading="lazy"
+                />
+              </div>
+            )}
+            {loadingIllustrations.has(i) && (
+              <div className="scene-illustration-loading">生成插画中...</div>
+            )}
           </div>
         ))}
 

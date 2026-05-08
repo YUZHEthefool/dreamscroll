@@ -61,6 +61,7 @@ export interface WorldSetting {
   styleGuide?: string;
   keyNodes: KeyNode[];
   endings: Ending[];
+  illustrations?: Record<string, string>;
   createdAt: number;
 }
 
@@ -68,6 +69,7 @@ export interface NarrativeMessage {
   role: "narrator" | "player" | "npc" | "system";
   speaker?: string;
   content: string;
+  illustration?: string;
   timestamp: number;
 }
 

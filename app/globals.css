@@ -856,6 +856,96 @@ blockquote, h1, h2, h3, ol, p, ul { margin: 0; }
 .relation-positive { color: #2a5a00; }
 .relation-negative { color: var(--accent); }
 
+/* ── Story Tree ── */
+.story-tree {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0;
+  padding: 4px 0 4px 18px;
+}
+
+.story-tree-node {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.story-tree-node::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0,0,0,.14);
+}
+
+.story-tree-node:first-child::before { top: 50%; }
+.story-tree-node:last-child::before { bottom: 50%; }
+
+.story-tree-marker {
+  position: relative;
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border: 1.5px solid var(--ink-faint);
+  border-radius: 50%;
+  background: var(--paper);
+}
+
+.story-tree-done .story-tree-marker {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.story-tree-next .story-tree-marker {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(122,0,0,.12);
+}
+
+.story-tree-ending .story-tree-marker {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+.story-tree-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.story-tree-label {
+  font-size: .9rem;
+  color: var(--ink-faint);
+  line-height: 1.4;
+}
+
+.story-tree-done .story-tree-label {
+  color: var(--ink);
+}
+
+.story-tree-next .story-tree-label {
+  color: var(--accent);
+}
+
+.story-tree-choice {
+  font-size: .82rem;
+  color: var(--ink-soft);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.story-tree-hint {
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  color: var(--ink-faint);
+  letter-spacing: .06em;
+}
+
 /* ── Responsive ── */
 @media (min-width: 920px) {
   .page-shell {

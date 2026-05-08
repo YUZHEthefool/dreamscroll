@@ -13,6 +13,8 @@ import {
   cleanNarrativeText,
   parseChoiceResponse,
 } from "@/lib/markdown-parser";
+import { downloadStoryMarkdown } from "@/lib/story-export";
+import StoryTree from "./StoryTree";
 import {
   getWorld,
   getGame,
@@ -117,6 +119,7 @@ export default function GameView({ gameId, worldId }: Props) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [autoCP, setAutoCP] = useState(true);
   const [showRelations, setShowRelations] = useState(false);
+  const [showTree, setShowTree] = useState(false);
   const lastActionRef = useRef<{ gameState: GameState; text: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
@@ -693,16 +696,25 @@ export default function GameView({ gameId, worldId }: Props) {
               ? "关键抉择"
               : "探索中"}
           {!streaming && (
-            <button
-              type="button"
-              className="checkpoint-toggle"
-              onClick={() => {
-                refreshCheckpoints(game.id);
-                setShowCheckpoints((v) => !v);
-              }}
-            >
-              {showCheckpoints ? "关闭回溯" : "回溯"}
-            </button>
+            <>
+              <button
+                type="button"
+                className="checkpoint-toggle"
+                onClick={() => setShowTree((v) => !v)}
+              >
+                {showTree ? "关闭脉络" : "脉络"}
+              </button>
+              <button
+                type="button"
+                className="checkpoint-toggle"
+                onClick={() => {
+                  refreshCheckpoints(game.id);
+                  setShowCheckpoints((v) => !v);
+                }}
+              >
+                {showCheckpoints ? "关闭回溯" : "回溯"}
+              </button>
+            </>
           )}
         </span>
       </div>
@@ -756,6 +768,14 @@ export default function GameView({ gameId, worldId }: Props) {
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {/* Story Tree */}
+      {showTree && (
+        <div className="checkpoint-panel">
+          <p className="checkpoint-panel-title">故事脉络</p>
+          <StoryTree world={world} game={game} />
         </div>
       )}
 
@@ -887,6 +907,13 @@ export default function GameView({ gameId, worldId }: Props) {
             >
               重新开始
             </a>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => downloadStoryMarkdown(world, game)}
+            >
+              导出故事
+            </button>
           </div>
         </div>
       )}

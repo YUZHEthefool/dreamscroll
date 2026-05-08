@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { listWorlds, listGames, deleteWorld, deleteGame } from "@/lib/store";
 import { WorldSetting, GameState } from "@/lib/types";
+import { downloadStoryMarkdown } from "@/lib/story-export";
+import { downloadWorldTemplate } from "@/lib/world-template";
 
 export default function SaveList() {
   const [worlds, setWorlds] = useState<WorldSetting[]>([]);
@@ -60,8 +62,17 @@ export default function SaveList() {
               {worldGames.length > 0 ? (
                 <>
                   <a href={`/game?id=${worldGames[0].id}`} className="primary-button">
-                    继续游戏
+                    {worldGames[0].endingReached ? "查看故事" : "继续游戏"}
                   </a>
+                  {worldGames[0].endingReached && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => downloadStoryMarkdown(w, worldGames[0])}
+                    >
+                      导出故事
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="outline-button"
@@ -75,6 +86,13 @@ export default function SaveList() {
                   开始游戏
                 </a>
               )}
+              <button
+                type="button"
+                className="outline-button"
+                onClick={() => downloadWorldTemplate(w)}
+              >
+                导出模板
+              </button>
               <button
                 type="button"
                 className="outline-button"

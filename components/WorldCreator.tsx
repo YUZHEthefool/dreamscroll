@@ -6,6 +6,7 @@ import {
   protagonistGenPrompt,
   plotGenPrompt,
   styleGuideGenPrompt,
+  worldIllustrationPrompt,
 } from "@/lib/prompts";
 import {
   parseWorldMarkdown,
@@ -13,6 +14,7 @@ import {
   parsePlotMarkdown,
 } from "@/lib/markdown-parser";
 import { saveWorld } from "@/lib/store";
+import { isImageGenConfigured, generateImage } from "@/lib/image-gen";
 import { WorldSetting, Character } from "@/lib/types";
 
 type Phase =
@@ -52,6 +54,8 @@ export default function WorldCreator() {
   const rawWorldMdRef = useRef("");
   const rawProtagonistMdRef = useRef("");
   const rawPlotMdRef = useRef("");
+  const [worldIllustrations, setWorldIllustrations] = useState<Record<string, string>>({});
+  const [generatingImages, setGeneratingImages] = useState(false);
 
   // ── Export ──
 
@@ -154,6 +158,7 @@ export default function WorldCreator() {
     if (parsedWorld.protagonist.name !== "待选择") {
       if (parsedWorld.keyNodes.length > 0) {
         setPhase("preview");
+        generateWorldIllustrations(parsedWorld);
       } else {
         await doPlotAndPreview(parsedWorld);
       }
@@ -302,6 +307,22 @@ export default function WorldCreator() {
     }
   }
 
+  async function generateWorldIllustrations(w: WorldSetting) {
+    if (!(await isImageGenConfigured())) return;
+    setGeneratingImages(true);
+    const types = ["landscape", "worldmap"] as const;
+    await Promise.all(
+      types.map(async (type) => {
+        const prompt = worldIllustrationPrompt(w, type);
+        const url = await generateImage(prompt);
+        if (url) {
+          setWorldIllustrations((prev) => ({ ...prev, [type]: url }));
+        }
+      })
+    );
+    setGeneratingImages(false);
+  }
+
   async function doPlotAndPreview(w: WorldSetting) {
     setPhase("generatingPlot");
     try {
@@ -318,6 +339,7 @@ export default function WorldCreator() {
       };
       setWorld(finalWorld);
       setPhase("preview");
+      generateWorldIllustrations(finalWorld);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "剧情生成失败，请重试。"
@@ -385,8 +407,11 @@ export default function WorldCreator() {
 
   function handleSaveAndPlay() {
     if (!world) return;
-    saveWorld(world);
-    window.location.href = `/game?worldId=${world.id}`;
+    const toSave = Object.keys(worldIllustrations).length > 0
+      ? { ...world, illustrations: worldIllustrations }
+      : world;
+    saveWorld(toSave);
+    window.location.href = `/game?worldId=${toSave.id}`;
   }
 
   function handleRetry() {
@@ -395,6 +420,8 @@ export default function WorldCreator() {
     setWorld(null);
     setCandidates([]);
     setPreview("");
+    setWorldIllustrations({});
+    setGeneratingImages(false);
     rawWorldMdRef.current = "";
     rawProtagonistMdRef.current = "";
     rawPlotMdRef.current = "";
@@ -403,6 +430,11 @@ export default function WorldCreator() {
   // ── Render ──
 
   if (phase === "input") {
+    const hint = typeof window !== "undefined"
+      ? sessionStorage.getItem("vibenovel_create_hint") || ""
+      : "";
+    if (hint) sessionStorage.removeItem("vibenovel_create_hint");
+
     return (
       <section className="script-section">
         <div className="script-section-heading">
@@ -415,7 +447,7 @@ export default function WorldCreator() {
           placeholder={
             "在这里描述你的世界创意...\n\n例如：\n- 一个灵气枯竭的末法修仙世界，修士们用科技模拟修行\n- 1920年代的上海滩，混入了克苏鲁神话元素\n- 赛博朋克都市中的武侠江湖\n- 星际时代的校园悬疑故事"
           }
-          defaultValue=""
+          defaultValue={hint}
           rows={6}
         />
         <div className="script-command-row">
@@ -691,6 +723,32 @@ export default function WorldCreator() {
             <p>{world.worldview}</p>
           </div>
         </section>
+
+        {(Object.keys(worldIllustrations).length > 0 || generatingImages) && (
+          <section className="script-section">
+            <div className="script-section-heading">
+              <h2>世界插画</h2>
+            </div>
+            <div className="world-illustrations">
+              {worldIllustrations.landscape ? (
+                <div className="scene-illustration">
+                  <img src={worldIllustrations.landscape} alt="世界全景" />
+                  <span className="illustration-caption">世界全景</span>
+                </div>
+              ) : generatingImages ? (
+                <div className="scene-illustration-loading">生成全景图中...</div>
+              ) : null}
+              {worldIllustrations.worldmap ? (
+                <div className="scene-illustration">
+                  <img src={worldIllustrations.worldmap} alt="世界地图" />
+                  <span className="illustration-caption">世界地图</span>
+                </div>
+              ) : generatingImages ? (
+                <div className="scene-illustration-loading">生成地图中...</div>
+              ) : null}
+            </div>
+          </section>
+        )}
 
         <section className="script-section">
           <div className="script-section-heading">

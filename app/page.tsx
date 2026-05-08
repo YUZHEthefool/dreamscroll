@@ -1,6 +1,7 @@
 "use client";
 import SaveList from "@/components/SaveList";
 import WorldImporter from "@/components/WorldImporter";
+import TemplateGallery from "@/components/TemplateGallery";
 
 export default function Home() {
   return (
@@ -95,6 +96,14 @@ export default function Home() {
                 <p>你创建过的世界和进行中的游戏。</p>
               </div>
               <SaveList />
+            </section>
+
+            <section className="script-section">
+              <div className="script-section-heading">
+                <h2>世界画廊</h2>
+                <p>精选世界模板，一键开始冒险。</p>
+              </div>
+              <TemplateGallery />
             </section>
           </aside>
         </div>

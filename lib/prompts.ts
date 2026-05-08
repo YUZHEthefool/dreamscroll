@@ -449,6 +449,45 @@ ${choicesText}
   ];
 }
 
+// ── Image generation prompts ──
+
+const STYLE_SUFFIX =
+  "Style: vintage sepia-toned ink illustration, cross-hatching, dramatic lighting, high contrast, no text or lettering.";
+
+export function worldIllustrationPrompt(
+  world: WorldSetting,
+  type: "worldmap" | "landscape" | "character"
+): string {
+  const genre = world.genre || "fantasy";
+  const wv = world.worldview.slice(0, 600);
+
+  if (type === "worldmap") {
+    return `A hand-drawn fantasy world map for a ${genre} story world. The world: ${wv}. Show key regions, landmarks, borders, and geographic features as an aged parchment cartography illustration. ${STYLE_SUFFIX}`;
+  }
+  if (type === "character") {
+    const p = world.protagonist;
+    return `Character portrait: ${p.name}, ${p.title}. Appearance: ${p.appearance || "not specified"}. Personality: ${p.personality}. Genre: ${genre}. Half-body portrait, facing slightly to the side. ${STYLE_SUFFIX}`;
+  }
+  return `A panoramic landscape illustration for a ${genre} story world. The world: ${wv}. Show the most iconic vista of this world with its defining features. Wide cinematic composition. ${STYLE_SUFFIX}`;
+}
+
+export function sceneIllustrationPrompt(
+  world: WorldSetting,
+  narrativeText: string
+): string {
+  const genre = world.genre || "fantasy";
+  const scene = narrativeText.slice(-400);
+  return `Scene illustration for a ${genre} interactive novel. The scene: ${scene}. Capture the key moment, atmosphere, and emotion. Single scene composition, cinematic framing. ${STYLE_SUFFIX}`;
+}
+
+export function endingIllustrationPrompt(
+  world: WorldSetting,
+  ending: { title: string; summary: string }
+): string {
+  const genre = world.genre || "fantasy";
+  return `Final scene illustration for a ${genre} story ending titled "${ending.title}". ${ending.summary}. Dramatic, emotional composition conveying resolution and closure. ${STYLE_SUFFIX}`;
+}
+
 export function npcExtractPrompt(narrativeText: string): ChatMessage[] {
   return [
     {

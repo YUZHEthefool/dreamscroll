@@ -1,5 +1,6 @@
 "use client";
 import SaveList from "@/components/SaveList";
+import WorldImporter from "@/components/WorldImporter";
 
 export default function Home() {
   return (
@@ -77,6 +78,7 @@ export default function Home() {
                 <a href="/create" className="primary-button">
                   新建世界
                 </a>
+                <WorldImporter />
                 <a href="/settings" className="outline-button">
                   API 配置
                 </a>

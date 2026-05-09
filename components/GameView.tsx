@@ -82,7 +82,7 @@ function checkEnding(w: WorldSetting, g: GameState): Ending | null {
   const triggered = g.triggeredNodes || [];
   if (triggered.length >= w.keyNodes.length && w.keyNodes.length > 0) {
     let bestMatch: Ending | null = null;
-    let bestScore = -1;
+    let bestScore = 0;
     for (const ending of w.endings) {
       let score = 0;
       for (const cond of ending.conditions) {
@@ -129,6 +129,7 @@ export default function GameView({ gameId, worldId }: Props) {
   const initRef = useRef(false);
   const playerTurnCountRef = useRef(0);
   const narratorCountRef = useRef(0);
+  const processingRef = useRef(false);
   const [illustrations, setIllustrations] = useState<Record<number, string>>({});
   const [loadingIllustrations, setLoadingIllustrations] = useState<Set<number>>(new Set());
 
@@ -229,7 +230,7 @@ export default function GameView({ gameId, worldId }: Props) {
 
       const chars = [...g.sideCharacters];
       for (const npc of npcs) {
-        if (!npc.name) continue;
+        if (!npc.name || typeof npc.name !== "string") continue;
         const existing = chars.find((c) => c.name === npc.name);
         if (existing) {
           existing.affinity = (existing.affinity || 0) + (npc.delta || 0);
@@ -428,7 +429,7 @@ export default function GameView({ gameId, worldId }: Props) {
       setPendingChoices(choices);
       setLoadingChoices(false);
 
-      generateSceneIllustration(w, narrativeText, withNarrative.narrative.length - 1, true);
+      generateSceneIllustration(w, narrativeText, withNarrative.narrative.length - 1, true).catch(() => {});
 
       extractAndUpdateNPCs(withChoicesOpening, narrativeText).then((withNPCs) => {
         if (withNPCs !== withChoicesOpening) {
@@ -492,7 +493,7 @@ export default function GameView({ gameId, worldId }: Props) {
       setLoadingChoices(false);
       lastActionRef.current = null;
 
-      generateSceneIllustration(world, narrativeText, withNarrative.narrative.length - 1);
+      generateSceneIllustration(world, narrativeText, withNarrative.narrative.length - 1).catch(() => {});
 
       extractAndUpdateNPCs(withChoices, narrativeText).then((withNPCs) => {
         if (withNPCs !== withChoices) {
@@ -560,7 +561,7 @@ export default function GameView({ gameId, worldId }: Props) {
       setGame(updated);
       saveGame(updated);
       setPhase("ending");
-      generateEndingIllustration(w, ending, updated.narrative.length - 1);
+      generateEndingIllustration(w, ending, updated.narrative.length - 1).catch(() => {});
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "生成结局失败"
@@ -602,7 +603,8 @@ export default function GameView({ gameId, worldId }: Props) {
   }
 
   async function handlePlayerAction(actionText: string) {
-    if (!world || !game || streaming || loadingChoices) return;
+    if (!world || !game || streaming || loadingChoices || processingRef.current) return;
+    processingRef.current = true;
 
     const playerMsg: NarrativeMessage = {
       role: "player",
@@ -652,12 +654,14 @@ export default function GameView({ gameId, worldId }: Props) {
       saveGame(updated);
       setActiveNode(triggered);
       setPhase("node");
+      processingRef.current = false;
       return;
     }
 
     setGame(updated);
     saveGame(updated);
     await generateNarrative(updated, actionText);
+    processingRef.current = false;
   }
 
   function handleButtonChoice(choice: NarrativeOption) {
@@ -913,7 +917,7 @@ export default function GameView({ gameId, worldId }: Props) {
                 {msg.role === "narrator"
                   ? "叙事"
                   : msg.role === "player"
-                    ? world.protagonist.name
+                    ? (world.protagonist?.name || "主角")
                     : msg.role === "npc"
                       ? msg.speaker
                       : "系统"}

@@ -61,9 +61,53 @@ export async function GET() {
   );
 }
 
+function isMaskedKey(key: string): boolean {
+  return /^.{4}\*{4}.{4}$/.test(key) || key === "****";
+}
+
+function isValidUrl(url: string): boolean {
+  if (!url) return true;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const { url, apiKey, model, creationModel, imageUrl, imageApiKey, imageModel, imageApiType } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "请求体不是有效的 JSON" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const url = typeof body.url === "string" ? body.url : undefined;
+  const apiKey = typeof body.apiKey === "string" ? body.apiKey : undefined;
+  const model = typeof body.model === "string" ? body.model : undefined;
+  const creationModel = typeof body.creationModel === "string" ? body.creationModel : undefined;
+  const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl : undefined;
+  const imageApiKey = typeof body.imageApiKey === "string" ? body.imageApiKey : undefined;
+  const imageModel = typeof body.imageModel === "string" ? body.imageModel : undefined;
+  const imageApiType = typeof body.imageApiType === "string" ? body.imageApiType : undefined;
+
+  if (url !== undefined && !isValidUrl(url)) {
+    return new Response(
+      JSON.stringify({ error: "API URL 格式无效，必须是 http:// 或 https:// 开头" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  if (imageUrl !== undefined && !isValidUrl(imageUrl)) {
+    return new Response(
+      JSON.stringify({ error: "图像 API URL 格式无效，必须是 http:// 或 https:// 开头" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
   const existing = readFromFile();
 
@@ -77,14 +121,14 @@ export async function POST(req: NextRequest) {
   const updated: Record<string, string> = {
     url: url ?? existing.url ?? "",
     apiKey:
-      apiKey && !apiKey.includes("****")
+      apiKey && !isMaskedKey(apiKey)
         ? apiKey
         : existing.apiKey ?? "",
     model: model ?? existing.model ?? "",
     creationModel: creationModel ?? existing.creationModel ?? "",
     imageUrl: imageUrl ?? existing.imageUrl ?? "",
     imageApiKey:
-      imageApiKey && !imageApiKey.includes("****")
+      imageApiKey && !isMaskedKey(imageApiKey)
         ? imageApiKey
         : existing.imageApiKey ?? "",
     imageModel: imageModel ?? existing.imageModel ?? "",

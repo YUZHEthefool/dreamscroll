@@ -95,8 +95,7 @@ async function callOpenAI(
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI Image API error (${res.status}): ${text.slice(0, 300)}`);
+    throw new Error(`图像 API 请求失败 (${res.status})`);
   }
 
   const data = await res.json();
@@ -125,8 +124,7 @@ async function callChat(
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Chat Image API error (${res.status}): ${text.slice(0, 300)}`);
+    throw new Error(`图像 API 请求失败 (${res.status})`);
   }
 
   const data = await res.json();
@@ -166,8 +164,7 @@ async function callGoogle(
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Google Image API error (${res.status}): ${text.slice(0, 300)}`);
+    throw new Error(`图像 API 请求失败 (${res.status})`);
   }
 
   const data = await res.json();
@@ -195,12 +192,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const body = await req.json();
-  const { prompt, size } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "请求体不是有效的 JSON" }, { status: 400 });
+  }
+
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  const size = typeof body.size === "string" ? body.size : undefined;
 
   if (!prompt) {
     return Response.json(
       { error: "缺少 prompt 参数" },
+      { status: 400 }
+    );
+  }
+
+  if (prompt.length > 4000) {
+    return Response.json(
+      { error: "prompt 过长（最大 4000 字符）" },
       { status: 400 }
     );
   }

@@ -38,6 +38,16 @@ export default function WorldImporter() {
   async function handleUrlImport() {
     const url = urlInput.trim();
     if (!url) return;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        setStatus("仅支持 http:// 或 https:// 链接");
+        return;
+      }
+    } catch {
+      setStatus("URL 格式无效");
+      return;
+    }
     setStatus("");
     setUrlLoading(true);
     try {

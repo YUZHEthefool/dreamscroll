@@ -56,7 +56,7 @@ export default function SaveList() {
             </div>
             <h3 className="save-title">{w.title}</h3>
             <p className="save-summary">
-              {w.protagonist.name} - {w.worldview.slice(0, 80)}...
+              {w.protagonist?.name || "未知"} - {(w.worldview || "").slice(0, 80)}...
             </p>
             <div className="save-actions">
               {worldGames.length > 0 ? (

@@ -15,6 +15,16 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
+function safeSetItem(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    console.warn("[vibenovel] localStorage 写入失败，存储空间可能已满。");
+    return false;
+  }
+}
+
 export function listWorlds(): WorldSetting[] {
   return readJson<WorldSetting[]>(WORLDS_KEY, []);
 }
@@ -24,7 +34,7 @@ export function saveWorld(world: WorldSetting) {
   const idx = worlds.findIndex((w) => w.id === world.id);
   if (idx >= 0) worlds[idx] = world;
   else worlds.unshift(world);
-  localStorage.setItem(WORLDS_KEY, JSON.stringify(worlds));
+  safeSetItem(WORLDS_KEY, JSON.stringify(worlds));
 }
 
 export function deleteWorld(id: string) {
@@ -33,9 +43,9 @@ export function deleteWorld(id: string) {
     if (g.worldId === id) deleteCheckpoints(g.id);
   }
   const worlds = listWorlds().filter((w) => w.id !== id);
-  localStorage.setItem(WORLDS_KEY, JSON.stringify(worlds));
+  safeSetItem(WORLDS_KEY, JSON.stringify(worlds));
   const games = allGames.filter((g) => g.worldId !== id);
-  localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+  safeSetItem(GAMES_KEY, JSON.stringify(games));
 }
 
 export function getWorld(id: string): WorldSetting | undefined {
@@ -51,7 +61,7 @@ export function saveGame(game: GameState) {
   const idx = games.findIndex((g) => g.id === game.id);
   if (idx >= 0) games[idx] = game;
   else games.unshift(game);
-  localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+  safeSetItem(GAMES_KEY, JSON.stringify(games));
 }
 
 export function getGame(id: string): GameState | undefined {
@@ -60,7 +70,7 @@ export function getGame(id: string): GameState | undefined {
 
 export function deleteGame(id: string) {
   const games = listGames().filter((g) => g.id !== id);
-  localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+  safeSetItem(GAMES_KEY, JSON.stringify(games));
   deleteCheckpoints(id);
 }
 
@@ -73,7 +83,11 @@ export function getFullSave(gameId: string): GameSave | null {
 }
 
 export function genId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const time = Date.now().toString(36);
+  const rand = typeof crypto !== "undefined" && crypto.getRandomValues
+    ? Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(36)).join("").slice(0, 12)
+    : Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8);
+  return time + rand;
 }
 
 // ── Checkpoints ──
@@ -95,7 +109,7 @@ export function saveCheckpoint(gameId: string, label: string, snapshot: GameStat
     snapshot: JSON.parse(JSON.stringify(snapshot)),
     createdAt: Date.now(),
   });
-  localStorage.setItem(cpKey(gameId), JSON.stringify(cps));
+  safeSetItem(cpKey(gameId), JSON.stringify(cps));
 }
 
 export function deleteCheckpoints(gameId: string) {

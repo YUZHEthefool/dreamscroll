@@ -47,10 +47,28 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const body = await req.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "请求体不是有效的 JSON" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
   const url = buildUrl(settings.url);
 
   const isStream = body.stream !== false;
+
+  const maxTokens = Math.min(Math.max(Number(body.max_tokens) || 8192, 1), 16384);
+  const temperature = Math.min(Math.max(Number(body.temperature) ?? 0.8, 0), 2);
+
+  if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    return new Response(
+      JSON.stringify({ error: "messages 必须是非空数组" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
   let upstream: Response;
   try {
@@ -63,22 +81,21 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: body.model || settings.model,
         messages: body.messages,
-        temperature: body.temperature ?? 0.8,
-        max_tokens: body.max_tokens ?? 8192,
+        temperature,
+        max_tokens: maxTokens,
         stream: isStream,
       }),
     });
   } catch {
     return new Response(
-      JSON.stringify({ error: `无法连接到 API: ${settings.url}` }),
+      JSON.stringify({ error: "无法连接到 API，请检查 API 配置。" }),
       { status: 502, headers: { "Content-Type": "application/json" } }
     );
   }
 
   if (!upstream.ok) {
-    const text = await upstream.text();
     return new Response(
-      JSON.stringify({ error: `API 返回错误 (${upstream.status}): ${text.slice(0, 300)}` }),
+      JSON.stringify({ error: `API 返回错误 (${upstream.status})` }),
       { status: upstream.status, headers: { "Content-Type": "application/json" } }
     );
   }
